@@ -299,7 +299,6 @@ class LuciClient:
         if not data or status not in (0, 1):
             return False
         raw = data.decode("utf-8", "replace")
-        s = self.state
         if mid == MB_POSITION:
             return self._apply_position(_to_int(raw))
         if mid in (MB_REMOTE_UI, MB_REMOTE_UI_PLAY):
@@ -327,30 +326,37 @@ class LuciClient:
             updates["multiroom"] = raw
         else:
             return False
-        return self._update(s, updates)
+        return self._update(updates)
 
-    @staticmethod
-    def _update(obj: Any, updates: dict[str, Any]) -> bool:
+    def _update(self, updates: dict[str, Any]) -> bool:
+        s = self.state
         changed = False
         for key, value in updates.items():
-            if getattr(obj, key) != value:
-                setattr(obj, key, value)
+            if getattr(s, key) != value:
+                if key == "play_state":
+                    # Sources stop pushing the position while paused: freeze it where it really is.
+                    s.position_ms, s.position_updated_at = self._current_position(), time.time()
+                setattr(s, key, value)
                 changed = True
         return changed
+
+    def _current_position(self) -> int | None:
+        """Position now, extrapolated from the last known one while playing."""
+        s = self.state
+        if s.position_ms is None or s.position_updated_at is None or s.play_state != 0:
+            return s.position_ms
+        return s.position_ms + int((time.time() - s.position_updated_at) * 1000)
 
     def _apply_position(self, position: int | None) -> bool:
         """Position is pushed every second while playing: only report jumps (seek, new track)."""
         s = self.state
         if position is None:
             return False
-        now = time.time()
-        expected = s.position_ms
-        if expected is not None and s.position_updated_at is not None and s.play_state == 0:
-            expected += int((now - s.position_updated_at) * 1000)
+        expected = self._current_position()
         jumped = expected is None or abs(position - expected) > 2000
         if jumped:
             s.position_ms = position
-            s.position_updated_at = now
+            s.position_updated_at = time.time()
         return jumped
 
     def _apply_remote_ui(self, raw: str) -> bool:
@@ -377,7 +383,7 @@ class LuciClient:
         if (play_state := _to_int(w.get("PlayState"))) is not None:
             updates["play_state"] = play_state
         new_track = updates["uri"] != self.state.uri or updates["title"] != self.state.title
-        changed = self._update(self.state, updates)
+        changed = self._update(updates)
         if new_track:
             self.state.position_ms = 0
             self.state.position_updated_at = time.time()

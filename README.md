@@ -15,7 +15,6 @@ Bluetooth — and controls it.
 - **Now playing**: title, artist, album, cover art, duration, position, plus audio format
   (`sample_rate`, `bit_depth`, `bitrate_kbps`) as attributes.
 - **Control**: volume (set/step), mute, play, pause, stop, next, previous.
-- The device is linked to the same speaker in the Google Cast integration (shared MAC address).
 
 | Media player feature | LUCI message |
 |---|---|
