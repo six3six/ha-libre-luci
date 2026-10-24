@@ -25,5 +25,17 @@
       "already_configured": "Cette enceinte est déjà configurée.",
       "not_libre_device": "Cet appareil AirPlay n'est pas un module Libre Wireless."
     }
+  },
+  "entity": {
+    "switch": {
+      "bluetooth_pairing": {
+        "name": "Appairage Bluetooth"
+      }
+    }
+  },
+  "exceptions": {
+    "unsupported_source": {
+      "message": "{source} ne peut pas être lancé depuis l'enceinte. Seul le Bluetooth le peut (reconnexion du dernier appareil appairé) ; les sources réseau se lancent depuis le téléphone ou l'application."
+    }
   }
 }

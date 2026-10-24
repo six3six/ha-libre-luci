@@ -12,13 +12,17 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
     MediaType,
 )
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import LibreConfigEntry
-from .const import CONF_MAC, CONF_MANUFACTURER, CONF_MODEL, DOMAIN
-from .luci import LuciClient
+from .const import DOMAIN
+from .entity import LibreEntity
+
+# Sources the speaker can start by itself. Network sources (AirPlay, Google Cast, Spotify Connect,
+# Roon, DLNA) are always started from the phone or app that streams to it.
+SOURCE_BLUETOOTH = "Bluetooth"
 
 PLAY_STATE_TO_HA = {
     0: MediaPlayerState.PLAYING,
@@ -39,15 +43,14 @@ async def async_setup_entry(
     async_add_entities([LibreMediaPlayer(entry)])
 
 
-class LibreMediaPlayer(MediaPlayerEntity):
+class LibreMediaPlayer(LibreEntity, MediaPlayerEntity):
     """The player state that every source of the module reports to LUCI."""
 
-    _attr_has_entity_name = True
     _attr_name = None
-    _attr_should_poll = False
     _attr_device_class = MediaPlayerDeviceClass.SPEAKER
     _attr_media_content_type = MediaType.MUSIC
     _attr_volume_step = 0.02
+    _attr_source_list = [SOURCE_BLUETOOTH]
     _attr_supported_features = (
         MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.VOLUME_STEP
@@ -57,33 +60,8 @@ class LibreMediaPlayer(MediaPlayerEntity):
         | MediaPlayerEntityFeature.STOP
         | MediaPlayerEntityFeature.NEXT_TRACK
         | MediaPlayerEntityFeature.PREVIOUS_TRACK
+        | MediaPlayerEntityFeature.SELECT_SOURCE
     )
-
-    def __init__(self, entry: LibreConfigEntry) -> None:
-        self._client: LuciClient = entry.runtime_data
-        mac = entry.data[CONF_MAC]
-        state = self._client.state
-        self._attr_unique_id = mac
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, mac)},
-            connections={(CONNECTION_NETWORK_MAC, mac)},
-            name=state.name or entry.title,
-            manufacturer=entry.data.get(CONF_MANUFACTURER) or "Libre Wireless",
-            model=entry.data.get(CONF_MODEL) or None,
-            sw_version=state.firmware,
-            hw_version=f"MCU {state.host_firmware}" if state.host_firmware else None,
-        )
-
-    async def async_added_to_hass(self) -> None:
-        self.async_on_remove(self._client.add_listener(self._handle_update))
-
-    @callback
-    def _handle_update(self) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def available(self) -> bool:
-        return self._client.state.connected
 
     @property
     def state(self) -> MediaPlayerState:
@@ -153,16 +131,32 @@ class LibreMediaPlayer(MediaPlayerEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         s = self._client.state
-        return {
-            key: value
+        attributes: dict[str, Any] = {}
+        if s.bluetooth_connected is not None:
+            attributes["bluetooth_connected"] = s.bluetooth_connected
+        if s.bluetooth_device is not None:
+            attributes["bluetooth_device"] = s.bluetooth_device
+        if s.multiroom is not None:
+            attributes["multiroom"] = s.multiroom
+        if s.source:
             for key, value in (
                 ("sample_rate", s.sample_rate),
                 ("bit_depth", s.bit_depth),
                 ("bitrate_kbps", s.bitrate_kbps),
-                ("multiroom", s.multiroom),
+            ):
+                if value is not None:
+                    attributes[key] = value
+        return attributes
+
+    async def async_select_source(self, source: str) -> None:
+        """Bluetooth: reconnect the last paired devices; the speaker switches once one plays."""
+        if source != SOURCE_BLUETOOTH:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unsupported_source",
+                translation_placeholders={"source": source},
             )
-            if value is not None and (key == "multiroom" or s.source)
-        }
+        await self._client.bluetooth_reconnect()
 
     async def async_set_volume_level(self, volume: float) -> None:
         await self._client.set_volume(round(volume * 100))

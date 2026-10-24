@@ -34,6 +34,7 @@ GET, SET = 1, 2
 MB_REGISTER = 0x03
 MB_PLAY_CONTROL = 0x28
 MB_VOLUME = 0x40
+MB_BLUETOOTH = 0xD1
 
 HEADER = struct.Struct(">HBHBHH")
 REQUEST = struct.Struct("<HBHBHH")
@@ -69,6 +70,12 @@ PLAY_STATES = {0: "playing", 1: "stopped", 2: "paused", 3: "connecting", 4: "rec
 # (strcmp) in spotifyhifi, airplay_v2, castlucicomm and libreraat_app.
 PLAY_COMMANDS = ("PLAY", "PAUSE", "RESUME", "STOP", "NEXT", "PREV", "MUTE", "UNMUTE")
 
+# Bluetooth commands (MB 0xD1, handled by libbluetooth `ProcessUIMsg`), as sent by the MCU of the Argon
+# Solo: ENTPAIR/EXTPAIR open/close pairing (discoverable), ENTCONNECTABLE lets paired devices connect,
+# AUTOCON reconnects the last paired devices. CLEARALL, HCICMD... are deliberately not allowed.
+BT_COMMANDS = ("ENTPAIR", "EXTPAIR", "ENTCONNECTABLE", "AUTOCON")
+PAIRING_DURATION = 120.0  # same window as the hardware button of the Solo
+
 # Message boxes that are safe to GET (checked one by one on firmware p15245).
 SAFE_GET = (0x05, 0x06, 0x07, 0x09, 0x18, 0x2A, 0x2C, 0x2F, 0x32, 0x33, 0x3F, 0x40, 0x5A, 0x67)
 
@@ -97,6 +104,7 @@ def encode_request(kind: int, mid: int, data: bytes = b"") -> bytes:
         or (kind == GET and mid in SAFE_GET and not data)
         or (kind == SET and mid == MB_VOLUME and data.isdigit() and 0 <= int(data) <= 100)
         or (kind == SET and mid == MB_PLAY_CONTROL and data.decode(errors="replace") in PLAY_COMMANDS)
+        or (kind == SET and mid == MB_BLUETOOTH and data.decode(errors="replace") in BT_COMMANDS)
     )
     if not allowed:
         raise ValueError(f"LUCI message box 0x{mid:X} type {kind} is not whitelisted")
@@ -125,6 +133,9 @@ class LuciState:
     volume: int | None = None
     muted: bool | None = None
     multiroom: str | None = None
+    bluetooth_connected: bool | None = None
+    bluetooth_pairing: bool = False
+    bluetooth_device: str | None = None
     title: str | None = None
     artist: str | None = None
     album: str | None = None
@@ -164,6 +175,7 @@ class LuciClient:
         self._listeners: list[Callable[[], None]] = []
         self._write_lock = asyncio.Lock()
         self._closing = False
+        self._pairing_task: asyncio.Task | None = None
 
     # -- connection -------------------------------------------------------------------------
 
@@ -207,6 +219,11 @@ class LuciClient:
 
     async def stop(self) -> None:
         self._closing = True
+        if self._pairing_task is not None or self.state.bluetooth_pairing:
+            # Do not leave the speaker discoverable once nobody is there to close pairing.
+            self._cancel_pairing_timer()
+            with contextlib.suppress(LuciError, OSError):
+                await self._send(SET, MB_BLUETOOTH, b"EXTPAIR")
         if self._task:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -280,6 +297,45 @@ class LuciClient:
     async def play_control(self, command: str) -> None:
         await self._send(SET, MB_PLAY_CONTROL, command.upper().encode())
 
+    async def start_bluetooth_pairing(self, duration: float = PAIRING_DURATION) -> None:
+        """Make the speaker discoverable, and close pairing again after `duration` seconds.
+
+        The module itself only leaves pairing mode when a device connects (the 120 s limit of the
+        hardware button is kept by the MCU, which does not know about this request).
+        """
+        await self._send(SET, MB_BLUETOOTH, b"ENTPAIR")
+        await self._send(SET, MB_BLUETOOTH, b"ENTCONNECTABLE")
+        self._cancel_pairing_timer()
+        self._pairing_task = asyncio.create_task(self._pairing_timeout(duration), name=f"luci {self.host} pairing")
+        if self._update({"bluetooth_pairing": True}):
+            self._notify()
+
+    async def stop_bluetooth_pairing(self) -> None:
+        self._cancel_pairing_timer()
+        await self._close_pairing()
+
+    async def bluetooth_reconnect(self) -> None:
+        """Reconnect the last paired Bluetooth devices (they become the source once they play)."""
+        await self._send(SET, MB_BLUETOOTH, b"AUTOCON")
+
+    async def _pairing_timeout(self, duration: float) -> None:
+        await asyncio.sleep(duration)
+        self._pairing_task = None
+        try:
+            await self._close_pairing()
+        except LuciError as err:
+            _LOGGER.debug("Could not close Bluetooth pairing on %s: %s", self.host, err)
+
+    async def _close_pairing(self) -> None:
+        await self._send(SET, MB_BLUETOOTH, b"EXTPAIR")
+        if self._update({"bluetooth_pairing": False}):
+            self._notify()
+
+    def _cancel_pairing_timer(self) -> None:
+        if self._pairing_task is not None:
+            self._pairing_task.cancel()
+            self._pairing_task = None
+
     # -- state ------------------------------------------------------------------------------
 
     def add_listener(self, callback: Callable[[], None]) -> Callable[[], None]:
@@ -324,6 +380,20 @@ class LuciClient:
             updates["muted"] = raw.upper() == "MUTE"
         elif mid == MB_MULTIROOM:
             updates["multiroom"] = raw
+        elif mid == MB_BLUETOOTH:
+            # libbluetooth `UpdateA2DPConnState`: "btconnect..." / "btdisconnect" (or MASTER_ prefixed);
+            # the module stops being discoverable on its own once a device connects.
+            if raw.startswith("GETREMOTENAME,"):
+                # Sent by the module when a device pairs or connects (observed on p15245).
+                updates["bluetooth_device"] = raw.partition(",")[2] or None
+            elif "btdisconnect" in raw:
+                updates["bluetooth_connected"] = False
+            elif "btconnect" in raw:
+                updates["bluetooth_connected"] = True
+                updates["bluetooth_pairing"] = False
+                self._cancel_pairing_timer()
+            else:
+                return False
         else:
             return False
         return self._update(updates)

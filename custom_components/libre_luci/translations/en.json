@@ -25,5 +25,17 @@
       "already_configured": "This speaker is already configured.",
       "not_libre_device": "This AirPlay device is not a Libre Wireless module."
     }
+  },
+  "entity": {
+    "switch": {
+      "bluetooth_pairing": {
+        "name": "Bluetooth pairing"
+      }
+    }
+  },
+  "exceptions": {
+    "unsupported_source": {
+      "message": "{source} cannot be started from the speaker. Only Bluetooth (reconnect the last paired device) can; network sources are started from the phone or app."
+    }
   }
 }

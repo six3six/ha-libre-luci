@@ -9,7 +9,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 
 from .luci import LuciClient, LuciError
 
-PLATFORMS = [Platform.MEDIA_PLAYER]
+PLATFORMS = [Platform.MEDIA_PLAYER, Platform.SWITCH]
 
 type LibreConfigEntry = ConfigEntry[LuciClient]
 
