@@ -1,7 +1,6 @@
 {
   "domain": "libre_luci",
   "name": "Libre Wireless (LUCI)",
-  "categories": ["media_entertainment.speakers_audio"],
   "codeowners": ["@six3six"],
   "config_flow": true,
   "documentation": "https://github.com/six3six/ha-libre-luci",
