@@ -136,6 +136,7 @@ class LuciState:
     bluetooth_connected: bool | None = None
     bluetooth_pairing: bool = False
     bluetooth_device: str | None = None
+    track_source: int | None = None
     title: str | None = None
     artist: str | None = None
     album: str | None = None
@@ -418,9 +419,13 @@ class LuciClient:
         return s.position_ms + int((time.time() - s.position_updated_at) * 1000)
 
     def _apply_position(self, position: int | None) -> bool:
-        """Position is pushed every second while playing: only report jumps (seek, new track)."""
+        """Position is pushed every second while playing: only report jumps (seek, new track).
+
+        MB 0x31 is written by the Google Cast bridge and can belong to another source than the
+        current track: a position beyond the track duration is ignored.
+        """
         s = self.state
-        if position is None:
+        if position is None or (s.duration_ms is not None and position > s.duration_ms + 2000):
             return False
         expected = self._current_position()
         jumped = expected is None or abs(position - expected) > 2000
@@ -430,6 +435,13 @@ class LuciClient:
         return jumped
 
     def _apply_remote_ui(self, raw: str) -> bool:
+        """Track metadata from the RemoteUI `PlayView` screen.
+
+        The module keeps the last PlayView cached: a GET after the source stopped or changed returns
+        a stale screen (old track, `PlayState` 0). Play state and source therefore only come from MB
+        0x32/0x33; the track is tagged with the source that produced it, and shown only while that
+        source is the current one.
+        """
         try:
             ui = json.loads(raw)
         except ValueError:
@@ -438,20 +450,17 @@ class LuciClient:
             return False
         w = ui.get("Window CONTENTS") or {}
         updates = {
+            "track_source": _to_int(w.get("Current Source")),
             "title": w.get("TrackName") or None,
             "artist": w.get("Artist") or None,
             "album": w.get("Album") or None,
             "image_url": w.get("CoverArtUrl") or None,
             "uri": w.get("PlayUrl") or None,
             "duration_ms": duration if (duration := _to_int(w.get("TotalTime"))) and duration > 0 else None,
-            "sample_rate": _to_int(w.get("SampleRate")),
-            "bit_depth": _to_int(w.get("BitDepth")),
-            "bitrate_kbps": _to_int(w.get("BitRate")),
+            "sample_rate": _to_int(w.get("SampleRate")) or None,
+            "bit_depth": _to_int(w.get("BitDepth")) or None,
+            "bitrate_kbps": _to_int(w.get("BitRate")) or None,
         }
-        if (source := _to_int(w.get("Current Source"))) is not None:
-            updates["source"] = source
-        if (play_state := _to_int(w.get("PlayState"))) is not None:
-            updates["play_state"] = play_state
         new_track = updates["uri"] != self.state.uri or updates["title"] != self.state.title
         changed = self._update(updates)
         if new_track:

@@ -90,8 +90,9 @@ class LibreMediaPlayer(LibreEntity, MediaPlayerEntity):
         return self._client.state.source_name
 
     def _track(self, value: Any) -> Any:
-        """Track metadata only makes sense while a source is active."""
-        return value if self._client.state.source else None
+        """Track metadata, only while the source that published it is the current one."""
+        s = self._client.state
+        return value if s.source and s.track_source == s.source else None
 
     @property
     def media_title(self) -> str | None:
@@ -138,14 +139,13 @@ class LibreMediaPlayer(LibreEntity, MediaPlayerEntity):
             attributes["bluetooth_device"] = s.bluetooth_device
         if s.multiroom is not None:
             attributes["multiroom"] = s.multiroom
-        if s.source:
-            for key, value in (
-                ("sample_rate", s.sample_rate),
-                ("bit_depth", s.bit_depth),
-                ("bitrate_kbps", s.bitrate_kbps),
-            ):
-                if value is not None:
-                    attributes[key] = value
+        for key, value in (
+            ("sample_rate", s.sample_rate),
+            ("bit_depth", s.bit_depth),
+            ("bitrate_kbps", s.bitrate_kbps),
+        ):
+            if self._track(value) is not None:
+                attributes[key] = value
         return attributes
 
     async def async_select_source(self, source: str) -> None:
