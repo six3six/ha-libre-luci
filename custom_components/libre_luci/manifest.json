@@ -1,0 +1,21 @@
+{
+  "domain": "libre_luci",
+  "name": "Libre Wireless (LUCI)",
+  "categories": ["media_entertainment.speakers_audio"],
+  "codeowners": ["@six3six"],
+  "config_flow": true,
+  "documentation": "https://github.com/six3six/ha-libre-luci",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/six3six/ha-libre-luci/issues",
+  "requirements": [],
+  "version": "0.1.0",
+  "zeroconf": [
+    {
+      "type": "_airplay._tcp.local.",
+      "properties": {
+        "fv": "p20.[0-9]*"
+      }
+    }
+  ]
+}

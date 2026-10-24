@@ -1,0 +1,29 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Enceinte Libre Wireless",
+        "description": "Saisissez l'adresse d'une enceinte équipée d'un module Libre Wireless (port de contrôle LUCI 7777).",
+        "data": {
+          "host": "Hôte"
+        },
+        "data_description": {
+          "host": "Adresse IP ou nom d'hôte de l'enceinte."
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Enceinte Libre Wireless détectée",
+        "description": "Ajouter {name} ({model}) à l'adresse {host} ?"
+      }
+    },
+    "error": {
+      "cannot_connect": "L'enceinte ne répond pas sur le port LUCI (7777).",
+      "no_mac": "L'enceinte répond en LUCI, mais son adresse MAC est illisible (ni AirPlay ni Google Cast n'ont répondu)."
+    },
+    "abort": {
+      "already_configured": "Cette enceinte est déjà configurée.",
+      "not_libre_device": "Cet appareil AirPlay n'est pas un module Libre Wireless."
+    }
+  }
+}

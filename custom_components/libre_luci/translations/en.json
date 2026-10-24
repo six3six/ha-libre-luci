@@ -1,0 +1,29 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Libre Wireless speaker",
+        "description": "Enter the address of a speaker built on a Libre Wireless module (LUCI control port 7777).",
+        "data": {
+          "host": "Host"
+        },
+        "data_description": {
+          "host": "IP address or host name of the speaker."
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Libre Wireless speaker found",
+        "description": "Add {name} ({model}) at {host}?"
+      }
+    },
+    "error": {
+      "cannot_connect": "The speaker does not answer on the LUCI port (7777).",
+      "no_mac": "The speaker answers on LUCI but its MAC address could not be read (AirPlay and Google Cast did not respond)."
+    },
+    "abort": {
+      "already_configured": "This speaker is already configured.",
+      "not_libre_device": "This AirPlay device is not a Libre Wireless module."
+    }
+  }
+}
